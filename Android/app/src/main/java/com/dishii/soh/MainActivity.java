@@ -544,6 +544,10 @@ public class MainActivity extends SDLActivity{
 
         setupJoystick(leftJoystick, leftJoystickKnob, true);
 
+        FrameLayout rightCJoystick = overlayView.findViewById(R.id.right_c_joystick);
+        ImageView rightCJoystickKnob = overlayView.findViewById(R.id.right_c_joystick_knob);
+        setupCJoystick(rightCJoystick, rightCJoystickKnob);
+
         setupLookAround(rightScreenArea);
 
         setupToggleButton(buttonToggle,buttonGroup);
@@ -572,9 +576,9 @@ public class MainActivity extends SDLActivity{
         int[] ids = { R.id.left_joystick, R.id.buttonLB, R.id.buttonRB, R.id.buttonZ,
                 R.id.buttonDpadUp, R.id.buttonDpadDown, R.id.buttonDpadLeft, R.id.buttonDpadRight,
                 R.id.buttonA, R.id.buttonB, R.id.buttonX, R.id.buttonY,
-                R.id.buttonStart, R.id.buttonBack };
+                R.id.buttonStart, R.id.buttonBack, R.id.right_c_joystick };
         String[] names = { "Joystick izquierdo", "L", "R", "Z", "C arriba", "C abajo",
-                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back" };
+                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back", "Joystick C derecho" };
         for (int i = 0; i < ids.length; i++) {
             View control = overlayView.findViewById(ids[i]);
             if (control != null) {
@@ -880,6 +884,76 @@ public class MainActivity extends SDLActivity{
 
 
 
+
+    // Right C-stick: cardinal directions press the corresponding N64 C button.
+    // It deliberately does not use AXIS_RX/RY, which remain reserved for camera input.
+    private void setupCJoystick(FrameLayout layout, ImageView knob) {
+        layout.post(() -> {
+            final float centerX = layout.getWidth() / 2f;
+            final float centerY = layout.getHeight() / 2f;
+            final float maxRadius = Math.max(1f, layout.getWidth() / 2f - knob.getWidth() / 2f);
+            layout.setOnTouchListener(new View.OnTouchListener() {
+                private int activeButton = -1;
+
+                private void changeDirection(int nextButton) {
+                    if (activeButton == nextButton) return;
+                    if (activeButton >= 0) {
+                        setButton(activeButton, false);
+                        nativeMenuNavKey(activeButton - ControllerButtons.BUTTON_DPAD_UP, false);
+                    }
+                    activeButton = nextButton;
+                    if (activeButton >= 0) {
+                        setButton(activeButton, true);
+                        nativeMenuNavKey(activeButton - ControllerButtons.BUTTON_DPAD_UP, true);
+                    }
+                }
+
+                private void updateStick(MotionEvent event) {
+                    float dx = event.getX() - centerX;
+                    float dy = event.getY() - centerY;
+                    float distance = (float) Math.sqrt(dx * dx + dy * dy);
+                    if (distance > maxRadius) {
+                        float factor = maxRadius / distance;
+                        dx *= factor; dy *= factor;
+                    }
+                    knob.setX(centerX + dx - knob.getWidth() / 2f);
+                    knob.setY(centerY + dy - knob.getHeight() / 2f);
+
+                    int direction = -1;
+                    float threshold = maxRadius * 0.35f;
+                    if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            direction = dx > 0 ? ControllerButtons.BUTTON_DPAD_RIGHT : ControllerButtons.BUTTON_DPAD_LEFT;
+                        } else {
+                            direction = dy > 0 ? ControllerButtons.BUTTON_DPAD_DOWN : ControllerButtons.BUTTON_DPAD_UP;
+                        }
+                    }
+                    changeDirection(direction);
+                }
+
+                private void resetStick() {
+                    changeDirection(-1);
+                    knob.setX(centerX - knob.getWidth() / 2f);
+                    knob.setY(centerY - knob.getHeight() / 2f);
+                }
+
+                @Override public boolean onTouch(View v, MotionEvent event) {
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN:
+                        case MotionEvent.ACTION_MOVE:
+                            updateStick(event);
+                            return true;
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            resetStick();
+                            return true;
+                        default:
+                            return true;
+                    }
+                }
+            });
+        });
+    }
 
     // Function to set joystick movement with reset to center when not touched
     private void setupJoystick(FrameLayout joystickLayout, ImageView joystickKnob, boolean isLeft) {
