@@ -512,6 +512,11 @@ public class MainActivity extends SDLActivity{
         leftJoystickKnob = overlayView.findViewById(R.id.left_joystick_knob);
 
         FrameLayout rightScreenArea = overlayView.findViewById(R.id.right_screen_area);
+        // Keep the look-around touch surface underneath every movable control.
+        // It originally followed the joystick in the child order and could cover it
+        // after the joystick was translated into the right-side area.
+        buttonGroup.removeView(rightScreenArea);
+        buttonGroup.addView(rightScreenArea, 0);
 
         addTouchListener(buttonA, ControllerButtons.BUTTON_A);
         addTouchListener(buttonB, ControllerButtons.BUTTON_B);
@@ -562,7 +567,7 @@ public class MainActivity extends SDLActivity{
 
     }
 
-    // Touch layout editor: drag controls and adjust their scale.
+    // Touch layout editor: drag controls, then adjust their scale and opacity.
     private void setupTouchControlEditor(ViewGroup group, FrameLayout rightScreenArea) {
         int[] ids = { R.id.left_joystick, R.id.buttonLB, R.id.buttonRB, R.id.buttonZ,
                 R.id.buttonDpadUp, R.id.buttonDpadDown, R.id.buttonDpadLeft, R.id.buttonDpadRight,
@@ -585,7 +590,7 @@ public class MainActivity extends SDLActivity{
             if (controlEditMode) {
                 rightScreenArea.setVisibility(View.GONE);
                 for (int i = 0; i < editableControls.size(); i++) installEditorTouch(editableControls.get(i), i);
-                Toast.makeText(this, "Arrastra un control para moverlo. Tócalo para cambiar su tamaño.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Arrastra los controles. Toca uno para ajustar tamaño y opacidad.", Toast.LENGTH_LONG).show();
             } else {
                 for (int i = 0; i < editableControls.size(); i++) saveControlTransform(editableControls.get(i), i);
                 restoreControlTouchListeners(rightScreenArea);
@@ -595,14 +600,19 @@ public class MainActivity extends SDLActivity{
         });
         edit.setOnLongClickListener(v -> {
             new AlertDialog.Builder(this).setTitle("Controles táctiles")
-                    .setMessage("Restablecerá la posición y el tamaño de todos los controles.")
+                    .setMessage("Restablecerá la posición, tamaño y opacidad de todos los controles.")
                     .setNegativeButton("Cancelar", null)
                     .setPositiveButton("Restablecer", (d, w) -> {
                         for (int i = 0; i < editableControls.size(); i++) {
                             View c = editableControls.get(i);
-                            c.setTranslationX(0); c.setTranslationY(0); c.setScaleX(1); c.setScaleY(1);
-                            preferences.edit().remove(controlKey(i, "x")).remove(controlKey(i, "y"))
-                                    .remove(controlKey(i, "s")).apply();
+                            for (View member : getControlTransformViews(c, i)) {
+                                member.setTranslationX(0); member.setTranslationY(0);
+                                member.setScaleX(1); member.setScaleY(1); member.setAlpha(1);
+                            }
+                            preferences.edit().remove(controlKey(transformPreferenceIndex(i), "x"))
+                                    .remove(controlKey(transformPreferenceIndex(i), "y"))
+                                    .remove(controlKey(transformPreferenceIndex(i), "s"))
+                                    .remove(controlKey(transformPreferenceIndex(i), "a")).apply();
                         }
                     }).show();
             return true;
@@ -610,31 +620,62 @@ public class MainActivity extends SDLActivity{
     }
 
     private String controlKey(int index, String suffix) { return "touch_editor_" + index + "_" + suffix; }
+    private java.util.List<View> getControlTransformViews(View control, int index) {
+        // The four C-button hit targets and their decorative cross are one logical control.
+        if (index >= 4 && index <= 7) {
+            java.util.ArrayList<View> group = new java.util.ArrayList<>();
+            View cross = overlayView.findViewById(R.id.imageView);
+            if (cross != null) group.add(cross);
+            if (buttonDpadUp != null) group.add(buttonDpadUp);
+            if (buttonDpadDown != null) group.add(buttonDpadDown);
+            if (buttonDpadLeft != null) group.add(buttonDpadLeft);
+            if (buttonDpadRight != null) group.add(buttonDpadRight);
+            return group;
+        }
+        return java.util.Collections.singletonList(control);
+    }
+    private int transformPreferenceIndex(int index) {
+        // Keep the existing preference slots for all other controls; C group uses slot 4.
+        return (index >= 4 && index <= 7) ? 4 : index;
+    }
     private void restoreControlTransform(View v, int i) {
-        v.setTranslationX(preferences.getFloat(controlKey(i, "x"), 0));
-        v.setTranslationY(preferences.getFloat(controlKey(i, "y"), 0));
-        float scale = preferences.getFloat(controlKey(i, "s"), 1f);
-        v.setScaleX(scale); v.setScaleY(scale);
+        int keyIndex = transformPreferenceIndex(i);
+        float x = preferences.getFloat(controlKey(keyIndex, "x"), 0);
+        float y = preferences.getFloat(controlKey(keyIndex, "y"), 0);
+        float scale = preferences.getFloat(controlKey(keyIndex, "s"), 1f);
+        float alpha = preferences.getFloat(controlKey(keyIndex, "a"), 1f);
+        for (View member : getControlTransformViews(v, i)) {
+            member.setTranslationX(x); member.setTranslationY(y);
+            member.setScaleX(scale); member.setScaleY(scale); member.setAlpha(alpha);
+        }
     }
     private void saveControlTransform(View v, int i) {
-        preferences.edit().putFloat(controlKey(i, "x"), v.getTranslationX())
-                .putFloat(controlKey(i, "y"), v.getTranslationY())
-                .putFloat(controlKey(i, "s"), v.getScaleX()).apply();
+        int keyIndex = transformPreferenceIndex(i);
+        preferences.edit().putFloat(controlKey(keyIndex, "x"), v.getTranslationX())
+                .putFloat(controlKey(keyIndex, "y"), v.getTranslationY())
+                .putFloat(controlKey(keyIndex, "s"), v.getScaleX())
+                .putFloat(controlKey(keyIndex, "a"), v.getAlpha()).apply();
     }
     private void installEditorTouch(View v, int index) {
         v.setOnTouchListener(new View.OnTouchListener() {
-            float downRawX, downRawY, startX, startY;
+            float downRawX, downRawY, lastRawX, lastRawY;
             boolean moved;
             @Override public boolean onTouch(View view, MotionEvent e) {
                 switch (e.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         downRawX = e.getRawX(); downRawY = e.getRawY();
-                        startX = view.getTranslationX(); startY = view.getTranslationY(); moved = false;
+                        lastRawX = downRawX; lastRawY = downRawY; moved = false;
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float dx = e.getRawX() - downRawX, dy = e.getRawY() - downRawY;
                         if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
-                        view.setTranslationX(startX + dx); view.setTranslationY(startY + dy);
+                        float stepX = e.getRawX() - lastRawX;
+                        float stepY = e.getRawY() - lastRawY;
+                        for (View member : getControlTransformViews(view, index)) {
+                            member.setTranslationX(member.getTranslationX() + stepX);
+                            member.setTranslationY(member.getTranslationY() + stepY);
+                        }
+                        lastRawX = e.getRawX(); lastRawY = e.getRawY();
                         return true;
                     case MotionEvent.ACTION_UP:
                         if (!moved) showControlAdjustDialog(view, index);
@@ -649,23 +690,22 @@ public class MainActivity extends SDLActivity{
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(32, 12, 32, 4);
-        TextView sizeLabel = new TextView(this);
-        SeekBar size = new SeekBar(this);
-        size.setMax(150);
+        TextView sizeLabel = new TextView(this); TextView alphaLabel = new TextView(this);
+        SeekBar size = new SeekBar(this); size.setMax(150);
+        SeekBar alpha = new SeekBar(this); alpha.setMax(100);
         size.setProgress(Math.max(0, Math.min(150, Math.round((control.getScaleX() - 0.5f) * 100))));
+        alpha.setProgress(Math.round(control.getAlpha() * 100));
         sizeLabel.setText("Tamaño: " + Math.round(control.getScaleX() * 100) + "%");
+        alphaLabel.setText("Opacidad: " + Math.round(control.getAlpha() * 100) + "%");
         size.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar b, int p, boolean u) {
-                float scale = 0.5f + p / 100f;
-                control.setScaleX(scale);
-                control.setScaleY(scale);
-                sizeLabel.setText("Tamaño: " + Math.round(scale * 100) + "%");
-            }
-            public void onStartTrackingTouch(SeekBar b) {}
-            public void onStopTrackingTouch(SeekBar b) {}
+            public void onProgressChanged(SeekBar b, int p, boolean u) { float s = 0.5f + p / 100f; for (View member : getControlTransformViews(control, index)) { member.setScaleX(s); member.setScaleY(s); } sizeLabel.setText("Tamaño: " + Math.round(s * 100) + "%"); }
+            public void onStartTrackingTouch(SeekBar b) {} public void onStopTrackingTouch(SeekBar b) {}
         });
-        layout.addView(sizeLabel);
-        layout.addView(size);
+        alpha.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar b, int p, boolean u) { for (View member : getControlTransformViews(control, index)) member.setAlpha(p / 100f); alphaLabel.setText("Opacidad: " + p + "%"); }
+            public void onStartTrackingTouch(SeekBar b) {} public void onStopTrackingTouch(SeekBar b) {}
+        });
+        layout.addView(sizeLabel); layout.addView(size); layout.addView(alphaLabel); layout.addView(alpha);
         new AlertDialog.Builder(this).setTitle(editableControlNames.get(index)).setView(layout)
                 .setPositiveButton("Aceptar", (d, w) -> saveControlTransform(control, index)).show();
     }
