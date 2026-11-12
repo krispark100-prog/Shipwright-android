@@ -721,7 +721,14 @@ public class MainActivity extends SDLActivity{
         addTouchListener(buttonLB, ControllerButtons.BUTTON_LB); addTouchListener(buttonRB, ControllerButtons.BUTTON_RB);
         addTouchListener(buttonZ, ControllerButtons.AXIS_RT); addTouchListener(buttonStart, ControllerButtons.BUTTON_START);
         buttonBack.setOnTouchListener((v, event) -> { if (event.getAction() == MotionEvent.ACTION_DOWN) nativeGamepadBackPressed(); return true; });
-        setupJoystick(leftJoystick, leftJoystickKnob, true); setupLookAround(rightScreenArea);
+        setupJoystick(leftJoystick, leftJoystickKnob, true);
+        // Reinstala el control de juego del stick C después de salir del editor.
+        FrameLayout rightCJoystick = overlayView.findViewById(R.id.right_c_joystick);
+        ImageView rightCJoystickKnob = overlayView.findViewById(R.id.right_c_joystick_knob);
+        if (rightCJoystick != null && rightCJoystickKnob != null) {
+            setupCJoystick(rightCJoystick, rightCJoystickKnob);
+        }
+        setupLookAround(rightScreenArea);
     }
 
     private void setupToggleButton(Button button, ViewGroup uiGroup){
@@ -885,71 +892,47 @@ public class MainActivity extends SDLActivity{
 
 
 
-    // Right C-stick: cardinal directions press the corresponding N64 C button.
-    // It deliberately does not use AXIS_RX/RY, which remain reserved for camera input.
+    // Right C-stick: injects the right analog axes. Ship of Harkinian maps
+    // the N64 C directions from the controller's right stick (RX/RY), not D-pad keys.
     private void setupCJoystick(FrameLayout layout, ImageView knob) {
         layout.post(() -> {
             final float centerX = layout.getWidth() / 2f;
             final float centerY = layout.getHeight() / 2f;
             final float maxRadius = Math.max(1f, layout.getWidth() / 2f - knob.getWidth() / 2f);
-            layout.setOnTouchListener(new View.OnTouchListener() {
-                private int activeButton = -1;
-
-                private void changeDirection(int nextButton) {
-                    if (activeButton == nextButton) return;
-                    if (activeButton >= 0) {
-                        setButton(activeButton, false);
-                        nativeMenuNavKey(activeButton - ControllerButtons.BUTTON_DPAD_UP, false);
-                    }
-                    activeButton = nextButton;
-                    if (activeButton >= 0) {
-                        setButton(activeButton, true);
-                        nativeMenuNavKey(activeButton - ControllerButtons.BUTTON_DPAD_UP, true);
-                    }
-                }
-
-                private void updateStick(MotionEvent event) {
-                    float dx = event.getX() - centerX;
-                    float dy = event.getY() - centerY;
-                    float distance = (float) Math.sqrt(dx * dx + dy * dy);
-                    if (distance > maxRadius) {
-                        float factor = maxRadius / distance;
-                        dx *= factor; dy *= factor;
-                    }
-                    knob.setX(centerX + dx - knob.getWidth() / 2f);
-                    knob.setY(centerY + dy - knob.getHeight() / 2f);
-
-                    int direction = -1;
-                    float threshold = maxRadius * 0.35f;
-                    if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
-                        if (Math.abs(dx) > Math.abs(dy)) {
-                            direction = dx > 0 ? ControllerButtons.BUTTON_DPAD_RIGHT : ControllerButtons.BUTTON_DPAD_LEFT;
-                        } else {
-                            direction = dy > 0 ? ControllerButtons.BUTTON_DPAD_DOWN : ControllerButtons.BUTTON_DPAD_UP;
+            // Start with the knob centered even if this listener is restored after editing.
+            knob.setX(centerX - knob.getWidth() / 2f);
+            knob.setY(centerY - knob.getHeight() / 2f);
+            layout.setOnTouchListener((v, event) -> {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = event.getX() - centerX;
+                        float dy = event.getY() - centerY;
+                        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+                        if (distance > maxRadius) {
+                            float factor = maxRadius / distance;
+                            dx *= factor;
+                            dy *= factor;
                         }
+                        knob.setX(centerX + dx - knob.getWidth() / 2f);
+                        knob.setY(centerY + dy - knob.getHeight() / 2f);
+                        short x = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE,
+                                (dx / maxRadius) * Short.MAX_VALUE));
+                        short y = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE,
+                                (dy / maxRadius) * Short.MAX_VALUE));
+                        setAxis(ControllerButtons.AXIS_RX, x);
+                        setAxis(ControllerButtons.AXIS_RY, y);
+                        return true;
                     }
-                    changeDirection(direction);
-                }
-
-                private void resetStick() {
-                    changeDirection(-1);
-                    knob.setX(centerX - knob.getWidth() / 2f);
-                    knob.setY(centerY - knob.getHeight() / 2f);
-                }
-
-                @Override public boolean onTouch(View v, MotionEvent event) {
-                    switch (event.getActionMasked()) {
-                        case MotionEvent.ACTION_DOWN:
-                        case MotionEvent.ACTION_MOVE:
-                            updateStick(event);
-                            return true;
-                        case MotionEvent.ACTION_UP:
-                        case MotionEvent.ACTION_CANCEL:
-                            resetStick();
-                            return true;
-                        default:
-                            return true;
-                    }
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        knob.setX(centerX - knob.getWidth() / 2f);
+                        knob.setY(centerY - knob.getHeight() / 2f);
+                        setAxis(ControllerButtons.AXIS_RX, (short) 0);
+                        setAxis(ControllerButtons.AXIS_RY, (short) 0);
+                        return true;
+                    default:
+                        return true;
                 }
             });
         });
