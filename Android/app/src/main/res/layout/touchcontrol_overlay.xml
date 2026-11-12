@@ -210,4 +210,20 @@ android:background="@drawable/ic_show"
 app:layout_constraintBottom_toBottomOf="parent"
 app:layout_constraintEnd_toEndOf="parent" />
 
+
+    <!-- Touch layout editor entry point -->
+    <Button
+        android:id="@+id/buttonEditControls"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="12dp"
+        android:backgroundTint="#CC263238"
+        android:text="Editar controles"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFFFF"
+        android:textSize="11sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>
