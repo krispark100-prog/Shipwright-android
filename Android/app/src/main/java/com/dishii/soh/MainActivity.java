@@ -535,6 +535,7 @@ public class MainActivity extends SDLActivity{
         addTouchListener(buttonStart, ControllerButtons.BUTTON_START);
         // BACK uses nativeGamepadBackPressed directly; setButton(BUTTON_BACK) feeds ImGuiKey_GamepadBack, unreliable when SDL Gamepads list is empty.
         buttonBack.setOnTouchListener((v, event) -> {
+            forwardTouchToSDL(event);
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 nativeGamepadBackPressed();
             }
@@ -549,6 +550,12 @@ public class MainActivity extends SDLActivity{
         setupCJoystick(rightCJoystick, rightCJoystickKnob);
 
         setupLookAround(rightScreenArea);
+
+        // Las zonas vacías de la capa también deben permitir interacción con SDL.
+        buttonGroup.setOnTouchListener((v, event) -> {
+            forwardTouchToSDL(event);
+            return true;
+        });
 
         setupToggleButton(buttonToggle,buttonGroup);
         setupTouchControlEditor(buttonGroup, rightScreenArea);
@@ -571,14 +578,28 @@ public class MainActivity extends SDLActivity{
 
     }
 
+    // Reenvía una copia del toque a la superficie SDL que está debajo de la capa
+    // Android. Así los menús ImGui de configuración reciben toques directos aunque
+    // los controles virtuales sigan visibles. Los controles continúan procesando
+    // el mismo evento para no perder joystick, cámara ni botones.
+    private void forwardTouchToSDL(MotionEvent event) {
+        if (event == null || controlEditMode || SDLActivity.mSurface == null) return;
+        MotionEvent forwarded = MotionEvent.obtain(event);
+        int[] surfaceLocation = new int[2];
+        SDLActivity.mSurface.getLocationOnScreen(surfaceLocation);
+        forwarded.offsetLocation(-surfaceLocation[0], -surfaceLocation[1]);
+        SDLActivity.mSurface.dispatchTouchEvent(forwarded);
+        forwarded.recycle();
+    }
+
     // Touch layout editor: drag controls, then adjust their scale and opacity.
     private void setupTouchControlEditor(ViewGroup group, FrameLayout rightScreenArea) {
         int[] ids = { R.id.left_joystick, R.id.buttonLB, R.id.buttonRB, R.id.buttonZ,
                 R.id.buttonDpadUp, R.id.buttonDpadDown, R.id.buttonDpadLeft, R.id.buttonDpadRight,
                 R.id.buttonA, R.id.buttonB, R.id.buttonX, R.id.buttonY,
-                R.id.buttonStart, R.id.buttonBack, R.id.right_c_joystick, R.id.buttonToggle };
+                R.id.buttonStart, R.id.buttonBack, R.id.right_c_joystick };
         String[] names = { "Joystick izquierdo", "L", "R", "Z", "C arriba", "C abajo",
-                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back", "Joystick C derecho", "Mostrar/ocultar controles" };
+                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back", "Joystick C derecho" };
         for (int i = 0; i < ids.length; i++) {
             View control = overlayView.findViewById(ids[i]);
             if (control != null) {
@@ -720,8 +741,15 @@ public class MainActivity extends SDLActivity{
         setupCButtons(buttonDpadLeft, ControllerButtons.BUTTON_DPAD_LEFT); setupCButtons(buttonDpadRight, ControllerButtons.BUTTON_DPAD_RIGHT);
         addTouchListener(buttonLB, ControllerButtons.BUTTON_LB); addTouchListener(buttonRB, ControllerButtons.BUTTON_RB);
         addTouchListener(buttonZ, ControllerButtons.AXIS_RT); addTouchListener(buttonStart, ControllerButtons.BUTTON_START);
-        buttonBack.setOnTouchListener((v, event) -> { if (event.getAction() == MotionEvent.ACTION_DOWN) nativeGamepadBackPressed(); return true; });
+        buttonBack.setOnTouchListener((v, event) -> { forwardTouchToSDL(event); if (event.getAction() == MotionEvent.ACTION_DOWN) nativeGamepadBackPressed(); return true; });
         setupJoystick(leftJoystick, leftJoystickKnob, true);
+        // El botón Mostrar/Ocultar conserva su clic normal. El editor había
+        // instalado un OnTouchListener sobre él y no lo retiraba al guardar,
+        // por lo que seguía interceptando los toques fuera del modo edición.
+        if (buttonToggle != null) {
+            buttonToggle.setOnTouchListener(null);
+            buttonToggle.setPressed(false);
+        }
         // Reinstala el control de juego del stick C después de salir del editor.
         FrameLayout rightCJoystick = overlayView.findViewById(R.id.right_c_joystick);
         ImageView rightCJoystickKnob = overlayView.findViewById(R.id.right_c_joystick_knob);
@@ -732,6 +760,8 @@ public class MainActivity extends SDLActivity{
     }
 
     private void setupToggleButton(Button button, ViewGroup uiGroup){
+        // No instalar un listener consumidor en la vista raíz: los toques de fondo
+        // se reenvían a SDL para que el menú de configuración siga siendo táctil.
         boolean isHidden = preferences.getBoolean("controlsVisible", false); // Default to 'false' (visible)
         uiGroup.setVisibility(isHidden ? View.INVISIBLE : View.VISIBLE);
         if (isHidden) {
@@ -739,7 +769,7 @@ public class MainActivity extends SDLActivity{
             overlayView.setOnTouchListener(null);
         } else {
             EnableTouchArea();
-            overlayView.setOnTouchListener((view, e) -> true);
+            overlayView.setOnTouchListener(null);
         }
         boolean toggleVisible = preferences.getBoolean("toggleButtonVisible", true); // Default to visible
         button.setVisibility(toggleVisible ? View.VISIBLE : View.GONE);
@@ -748,7 +778,7 @@ public class MainActivity extends SDLActivity{
             if (currentlyHidden) {
                 uiGroup.setVisibility(View.VISIBLE);
                 EnableTouchArea();
-                overlayView.setOnTouchListener((view, e) -> true);
+                overlayView.setOnTouchListener(null);
             } else {
                 uiGroup.setVisibility(View.INVISIBLE);
                 DisableTouchArea();
@@ -766,6 +796,7 @@ public class MainActivity extends SDLActivity{
         button.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
+                forwardTouchToSDL(event);
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
                         setButton(buttonNum, true);
@@ -791,6 +822,7 @@ public class MainActivity extends SDLActivity{
         button.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
+                forwardTouchToSDL(event);
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
                         setButton(dpadButton, true);
@@ -838,6 +870,7 @@ public class MainActivity extends SDLActivity{
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
+                forwardTouchToSDL(event);
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
                         // Start tracking the finger's position
@@ -903,6 +936,7 @@ public class MainActivity extends SDLActivity{
             knob.setX(centerX - knob.getWidth() / 2f);
             knob.setY(centerY - knob.getHeight() / 2f);
             layout.setOnTouchListener((v, event) -> {
+                forwardTouchToSDL(event);
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                     case MotionEvent.ACTION_MOVE: {
@@ -948,6 +982,7 @@ public class MainActivity extends SDLActivity{
             joystickLayout.setOnTouchListener(new View.OnTouchListener() {
                 @Override
                 public boolean onTouch(View v, MotionEvent event) {
+                    forwardTouchToSDL(event);
                     switch (event.getAction()) {
                         case MotionEvent.ACTION_DOWN:
                         case MotionEvent.ACTION_MOVE:
