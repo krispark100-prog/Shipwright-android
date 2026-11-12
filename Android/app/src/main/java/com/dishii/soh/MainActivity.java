@@ -576,9 +576,9 @@ public class MainActivity extends SDLActivity{
         int[] ids = { R.id.left_joystick, R.id.buttonLB, R.id.buttonRB, R.id.buttonZ,
                 R.id.buttonDpadUp, R.id.buttonDpadDown, R.id.buttonDpadLeft, R.id.buttonDpadRight,
                 R.id.buttonA, R.id.buttonB, R.id.buttonX, R.id.buttonY,
-                R.id.buttonStart, R.id.buttonBack, R.id.right_c_joystick };
+                R.id.buttonStart, R.id.buttonBack, R.id.right_c_joystick, R.id.buttonToggle };
         String[] names = { "Joystick izquierdo", "L", "R", "Z", "C arriba", "C abajo",
-                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back", "Joystick C derecho" };
+                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back", "Joystick C derecho", "Mostrar/ocultar controles" };
         for (int i = 0; i < ids.length; i++) {
             View control = overlayView.findViewById(ids[i]);
             if (control != null) {
