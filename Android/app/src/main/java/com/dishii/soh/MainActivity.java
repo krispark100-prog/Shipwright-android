@@ -42,6 +42,8 @@ import android.view.View;
 import android.view.ViewTreeObserver;
 import android.widget.ImageView;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import java.util.concurrent.Executors;
 import android.app.AlertDialog;
@@ -806,29 +808,56 @@ public class MainActivity extends SDLActivity{
         });
     }
 
-    // Sliding-button gesture routing: the button under the finger is recalculated
-    // on every MOVE, so dragging from one control to another releases the old
-    // input and presses the new one without requiring ACTION_UP.
-    private View slidingActiveButton;
+    // Multi-touch routing: each finger owns an independent active control.
+    // A finger may slide between controls while other fingers keep their buttons held.
+    private final Map<Integer, View> slidingActiveButtons = new HashMap<>();
 
     private boolean handleSlidingButtonTouch(View source, MotionEvent event) {
         forwardTouchToSDL(event);
         int action = event.getActionMasked();
-        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-            View target = findSlidingButtonAt(event.getRawX(), event.getRawY());
-            if (target != slidingActiveButton) {
-                releaseSlidingButton(slidingActiveButton);
-                slidingActiveButton = target;
-                pressSlidingButton(slidingActiveButton);
+        int actionIndex = event.getActionIndex();
+
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            int pointerId = event.getPointerId(actionIndex);
+            updateSlidingPointer(pointerId, event.getRawX(), event.getRawY());
+            return true;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            for (int i = 0; i < event.getPointerCount(); i++) {
+                int pointerId = event.getPointerId(i);
+                updateSlidingPointer(pointerId,
+                        event.getRawX() + (event.getX(i) - event.getX()),
+                        event.getRawY() + (event.getY(i) - event.getY()));
             }
             return true;
         }
-        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            releaseSlidingButton(slidingActiveButton);
-            slidingActiveButton = null;
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
+            releaseSlidingPointer(event.getPointerId(actionIndex));
+            return true;
+        }
+        if (action == MotionEvent.ACTION_CANCEL) {
+            // Android may cancel one split touch stream; release only pointers in this event.
+            for (int i = 0; i < event.getPointerCount(); i++) releaseSlidingPointer(event.getPointerId(i));
             return true;
         }
         return true;
+    }
+
+    private void updateSlidingPointer(int pointerId, float rawX, float rawY) {
+        View target = findSlidingButtonAt(rawX, rawY);
+        View previous = slidingActiveButtons.get(pointerId);
+        if (target == previous) return;
+        if (previous != null) releaseSlidingButton(previous);
+        if (target == null) slidingActiveButtons.remove(pointerId);
+        else {
+            slidingActiveButtons.put(pointerId, target);
+            pressSlidingButton(target);
+        }
+    }
+
+    private void releaseSlidingPointer(int pointerId) {
+        View previous = slidingActiveButtons.remove(pointerId);
+        if (previous != null) releaseSlidingButton(previous);
     }
 
     private View findSlidingButtonAt(float rawX, float rawY) {
