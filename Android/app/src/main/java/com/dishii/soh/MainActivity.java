@@ -605,6 +605,13 @@ public class MainActivity extends SDLActivity{
                 restoreControlTransform(control, i);
             }
         }
+        // Re-apply transforms after layout: the C-arrow container now spans the
+        // whole overlay, so their default positions are calculated from screen size.
+        overlayView.post(() -> {
+            for (int i = 0; i < editableControls.size(); i++) {
+                restoreControlTransform(editableControls.get(i), i);
+            }
+        });
         Button edit = overlayView.findViewById(R.id.buttonEditControls);
         edit.setOnClickListener(v -> {
             controlEditMode = !controlEditMode;
@@ -664,6 +671,21 @@ public class MainActivity extends SDLActivity{
         int keyIndex = transformPreferenceIndex(i);
         float x = preferences.getFloat(controlKey(keyIndex, "x"), 0);
         float y = preferences.getFloat(controlKey(keyIndex, "y"), 0);
+        // Default C-arrow positions reproduce the former 150dp cluster, but
+        // are offsets from the full-screen parent center rather than a small box.
+        if (!preferences.contains(controlKey(keyIndex, "x")) || !preferences.contains(controlKey(keyIndex, "y"))) {
+            float density = getResources().getDisplayMetrics().density;
+            int width = overlayView != null ? overlayView.getWidth() : 0;
+            if (width > 0) {
+                int id = v.getId();
+                if (id == R.id.buttonCRightUp || id == R.id.buttonCRightDown) x = width / 2f - 200f * density;
+                else if (id == R.id.buttonCRightLeft) x = width / 2f - 252f * density;
+                else if (id == R.id.buttonCRightRight) x = width / 2f - 148f * density;
+                if (id == R.id.buttonCRightUp) y = -52f * density;
+                else if (id == R.id.buttonCRightDown) y = 52f * density;
+                else y = 0f;
+            }
+        }
         float scale = preferences.getFloat(controlKey(keyIndex, "s"), 1f);
         float alpha = preferences.getFloat(controlKey(keyIndex, "a"), 1f);
         for (View member : getControlTransformViews(v, i)) {
