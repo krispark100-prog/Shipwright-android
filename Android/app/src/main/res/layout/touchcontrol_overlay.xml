@@ -57,19 +57,23 @@
 
     <!-- C-right: four independent arrow buttons. Each arrow sends a digital
          full-deflection value on the right analog axis while it is pressed. -->
+    <!-- Full-screen parent: the four arrows can be dragged anywhere without
+         being clipped or losing touch hit-testing at the old 150dp boundary. -->
     <FrameLayout
         android:id="@+id/right_c_buttons_group"
-        android:layout_width="150dp"
-        android:layout_height="150dp"
-        android:layout_marginEnd="125dp"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:background="@android:color/transparent"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent">
-        <Button android:id="@+id/buttonCRightUp" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="top|center_horizontal" android:background="@drawable/ic_button" android:text="▲" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
-        <Button android:id="@+id/buttonCRightDown" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="bottom|center_horizontal" android:background="@drawable/ic_button" android:text="▼" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
-        <Button android:id="@+id/buttonCRightLeft" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center_vertical|start" android:background="@drawable/ic_button" android:text="◀" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
-        <Button android:id="@+id/buttonCRightRight" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center_vertical|end" android:background="@drawable/ic_button" android:text="▶" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+        <Button android:id="@+id/buttonCRightUp" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center" android:background="@drawable/ic_button" android:text="▲" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        <Button android:id="@+id/buttonCRightDown" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center" android:background="@drawable/ic_button" android:text="▼" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        <Button android:id="@+id/buttonCRightLeft" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center" android:background="@drawable/ic_button" android:text="◀" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        <Button android:id="@+id/buttonCRightRight" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center" android:background="@drawable/ic_button" android:text="▶" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
     </FrameLayout>
 
     <!-- D-Pad -->
