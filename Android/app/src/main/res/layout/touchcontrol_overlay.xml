@@ -55,24 +55,21 @@
         app:layout_constraintStart_toStartOf="@+id/buttonDpadLeft"
         app:layout_constraintTop_toTopOf="@+id/buttonDpadUp" />
 
-    <!-- Right C-stick: four directions mapped to the N64 C buttons -->
+    <!-- C-right: four independent arrow buttons. Each arrow sends a digital
+         full-deflection value on the right analog axis while it is pressed. -->
     <FrameLayout
-        android:id="@+id/right_c_joystick"
+        android:id="@+id/right_c_buttons_group"
         android:layout_width="150dp"
         android:layout_height="150dp"
         android:layout_marginEnd="125dp"
-        android:background="@drawable/ic_stick"
-        android:clipToPadding="false"
+        android:background="@android:color/transparent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
-
-        <ImageView
-            android:id="@+id/right_c_joystick_knob"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center"
-            android:background="@drawable/ic_button" />
+        <Button android:id="@+id/buttonCRightUp" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="top|center_horizontal" android:background="@drawable/ic_button" android:text="▲" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        <Button android:id="@+id/buttonCRightDown" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="bottom|center_horizontal" android:background="@drawable/ic_button" android:text="▼" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        <Button android:id="@+id/buttonCRightLeft" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center_vertical|start" android:background="@drawable/ic_button" android:text="◀" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
+        <Button android:id="@+id/buttonCRightRight" android:layout_width="46dp" android:layout_height="46dp" android:layout_gravity="center_vertical|end" android:background="@drawable/ic_button" android:text="▶" android:textColor="#FFFFFFFF" android:textSize="20sp" android:padding="0dp" />
     </FrameLayout>
 
     <!-- D-Pad -->
