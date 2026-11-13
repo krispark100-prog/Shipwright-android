@@ -534,20 +534,15 @@ public class MainActivity extends SDLActivity{
 
         addTouchListener(buttonStart, ControllerButtons.BUTTON_START);
         // BACK uses nativeGamepadBackPressed directly; setButton(BUTTON_BACK) feeds ImGuiKey_GamepadBack, unreliable when SDL Gamepads list is empty.
-        buttonBack.setOnTouchListener((v, event) -> {
-            forwardTouchToSDL(event);
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                nativeGamepadBackPressed();
-            }
-            return true;
-        });
+        buttonBack.setOnTouchListener((v, event) -> handleSlidingButtonTouch(v, event));
 
 
         setupJoystick(leftJoystick, leftJoystickKnob, true);
 
-        FrameLayout rightCJoystick = overlayView.findViewById(R.id.right_c_joystick);
-        ImageView rightCJoystickKnob = overlayView.findViewById(R.id.right_c_joystick_knob);
-        setupCJoystick(rightCJoystick, rightCJoystickKnob);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightUp), 0, -1);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightDown), 0, 1);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightLeft), -1, 0);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightRight), 1, 0);
 
         setupLookAround(rightScreenArea);
 
@@ -597,9 +592,11 @@ public class MainActivity extends SDLActivity{
         int[] ids = { R.id.left_joystick, R.id.buttonLB, R.id.buttonRB, R.id.buttonZ,
                 R.id.buttonDpadUp, R.id.buttonDpadDown, R.id.buttonDpadLeft, R.id.buttonDpadRight,
                 R.id.buttonA, R.id.buttonB, R.id.buttonX, R.id.buttonY,
-                R.id.buttonStart, R.id.buttonBack, R.id.right_c_joystick };
+                R.id.buttonStart, R.id.buttonBack, R.id.buttonCRightUp, R.id.buttonCRightDown,
+                R.id.buttonCRightLeft, R.id.buttonCRightRight };
         String[] names = { "Joystick izquierdo", "L", "R", "Z", "C arriba", "C abajo",
-                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back", "Joystick C derecho" };
+                "C izquierda", "C derecha", "A", "B", "X", "Y", "Start", "Back",
+                "C derecho arriba", "C derecho abajo", "C derecho izquierda", "C derecho derecha" };
         for (int i = 0; i < ids.length; i++) {
             View control = overlayView.findViewById(ids[i]);
             if (control != null) {
@@ -741,7 +738,7 @@ public class MainActivity extends SDLActivity{
         setupCButtons(buttonDpadLeft, ControllerButtons.BUTTON_DPAD_LEFT); setupCButtons(buttonDpadRight, ControllerButtons.BUTTON_DPAD_RIGHT);
         addTouchListener(buttonLB, ControllerButtons.BUTTON_LB); addTouchListener(buttonRB, ControllerButtons.BUTTON_RB);
         addTouchListener(buttonZ, ControllerButtons.AXIS_RT); addTouchListener(buttonStart, ControllerButtons.BUTTON_START);
-        buttonBack.setOnTouchListener((v, event) -> { forwardTouchToSDL(event); if (event.getAction() == MotionEvent.ACTION_DOWN) nativeGamepadBackPressed(); return true; });
+        buttonBack.setOnTouchListener((v, event) -> handleSlidingButtonTouch(v, event));
         setupJoystick(leftJoystick, leftJoystickKnob, true);
         // El botón Mostrar/Ocultar conserva su clic normal. El editor había
         // instalado un OnTouchListener sobre él y no lo retiraba al guardar,
@@ -750,12 +747,11 @@ public class MainActivity extends SDLActivity{
             buttonToggle.setOnTouchListener(null);
             buttonToggle.setPressed(false);
         }
-        // Reinstala el control de juego del stick C después de salir del editor.
-        FrameLayout rightCJoystick = overlayView.findViewById(R.id.right_c_joystick);
-        ImageView rightCJoystickKnob = overlayView.findViewById(R.id.right_c_joystick_knob);
-        if (rightCJoystick != null && rightCJoystickKnob != null) {
-            setupCJoystick(rightCJoystick, rightCJoystickKnob);
-        }
+        // Reinstala las cuatro flechas C después de salir del editor.
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightUp), 0, -1);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightDown), 0, 1);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightLeft), -1, 0);
+        setupCArrowButton(overlayView.findViewById(R.id.buttonCRightRight), 1, 0);
         setupLookAround(rightScreenArea);
     }
 
@@ -788,60 +784,93 @@ public class MainActivity extends SDLActivity{
         });
     }
 
-    // Function to set a touch listener for each button
-    private void addTouchListener(Button button, int buttonNum) {
-        // dir>=4: face button nav keys (4=A/select, 5=B/back). -1 = no nav injection.
-        int navDir = (buttonNum == ControllerButtons.BUTTON_A) ? 4
-                   : (buttonNum == ControllerButtons.BUTTON_B) ? 5 : -1;
-        button.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                forwardTouchToSDL(event);
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        setButton(buttonNum, true);
-                        if (navDir >= 0) nativeMenuNavKey(navDir, true);
-                        button.setPressed(true);
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                        setButton(buttonNum, false);
-                        if (navDir >= 0) nativeMenuNavKey(navDir, false);
-                        button.setPressed(false);
-                        return true;
-                    case MotionEvent.ACTION_CANCEL:
-                        setButton(buttonNum, false);
-                        if (navDir >= 0) nativeMenuNavKey(navDir, false);
-                        return true;
-                }
-                return false;
+    // Sliding-button gesture routing: the button under the finger is recalculated
+    // on every MOVE, so dragging from one control to another releases the old
+    // input and presses the new one without requiring ACTION_UP.
+    private View slidingActiveButton;
+
+    private boolean handleSlidingButtonTouch(View source, MotionEvent event) {
+        forwardTouchToSDL(event);
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+            View target = findSlidingButtonAt(event.getRawX(), event.getRawY());
+            if (target != slidingActiveButton) {
+                releaseSlidingButton(slidingActiveButton);
+                slidingActiveButton = target;
+                pressSlidingButton(slidingActiveButton);
             }
-        });
+            return true;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            releaseSlidingButton(slidingActiveButton);
+            slidingActiveButton = null;
+            return true;
+        }
+        return true;
+    }
+
+    private View findSlidingButtonAt(float rawX, float rawY) {
+        int[] ids = { R.id.buttonA, R.id.buttonB, R.id.buttonX, R.id.buttonY,
+                R.id.buttonLB, R.id.buttonRB, R.id.buttonZ, R.id.buttonStart, R.id.buttonBack,
+                R.id.buttonDpadUp, R.id.buttonDpadDown, R.id.buttonDpadLeft, R.id.buttonDpadRight,
+                R.id.buttonCRightUp, R.id.buttonCRightDown, R.id.buttonCRightLeft, R.id.buttonCRightRight };
+        // Reverse order matches Android's visual hit-test order for overlapping controls.
+        for (int i = ids.length - 1; i >= 0; i--) {
+            View candidate = overlayView.findViewById(ids[i]);
+            if (candidate == null || candidate.getVisibility() != View.VISIBLE || candidate.getAlpha() <= 0.01f) continue;
+            Rect bounds = new Rect();
+            if (candidate.getGlobalVisibleRect(bounds) && bounds.contains((int) rawX, (int) rawY)) return candidate;
+        }
+        return null;
+    }
+
+    private void pressSlidingButton(View v) {
+        if (v == null) return;
+        int id = v.getId();
+        v.setPressed(true);
+        if (id == R.id.buttonA) { setButton(ControllerButtons.BUTTON_A, true); nativeMenuNavKey(4, true); }
+        else if (id == R.id.buttonB) { setButton(ControllerButtons.BUTTON_B, true); nativeMenuNavKey(5, true); }
+        else if (id == R.id.buttonX) setButton(ControllerButtons.BUTTON_X, true);
+        else if (id == R.id.buttonY) setButton(ControllerButtons.BUTTON_Y, true);
+        else if (id == R.id.buttonLB) setButton(ControllerButtons.BUTTON_LB, true);
+        else if (id == R.id.buttonRB) setButton(ControllerButtons.BUTTON_RB, true);
+        else if (id == R.id.buttonZ) setButton(ControllerButtons.AXIS_RT, true);
+        else if (id == R.id.buttonStart) setButton(ControllerButtons.BUTTON_START, true);
+        else if (id == R.id.buttonBack) nativeGamepadBackPressed();
+        else if (id == R.id.buttonDpadUp || id == R.id.buttonDpadDown || id == R.id.buttonDpadLeft || id == R.id.buttonDpadRight) {
+            int b = id == R.id.buttonDpadUp ? ControllerButtons.BUTTON_DPAD_UP : id == R.id.buttonDpadDown ? ControllerButtons.BUTTON_DPAD_DOWN : id == R.id.buttonDpadLeft ? ControllerButtons.BUTTON_DPAD_LEFT : ControllerButtons.BUTTON_DPAD_RIGHT;
+            setButton(b, true); nativeMenuNavKey(b - ControllerButtons.BUTTON_DPAD_UP, true);
+        } else if (id == R.id.buttonCRightUp) setAxis(ControllerButtons.AXIS_RY, (short)-Short.MAX_VALUE);
+        else if (id == R.id.buttonCRightDown) setAxis(ControllerButtons.AXIS_RY, (short)Short.MAX_VALUE);
+        else if (id == R.id.buttonCRightLeft) setAxis(ControllerButtons.AXIS_RX, (short)-Short.MAX_VALUE);
+        else if (id == R.id.buttonCRightRight) setAxis(ControllerButtons.AXIS_RX, (short)Short.MAX_VALUE);
+    }
+
+    private void releaseSlidingButton(View v) {
+        if (v == null) return;
+        int id = v.getId();
+        v.setPressed(false);
+        if (id == R.id.buttonA) { setButton(ControllerButtons.BUTTON_A, false); nativeMenuNavKey(4, false); }
+        else if (id == R.id.buttonB) { setButton(ControllerButtons.BUTTON_B, false); nativeMenuNavKey(5, false); }
+        else if (id == R.id.buttonX) setButton(ControllerButtons.BUTTON_X, false);
+        else if (id == R.id.buttonY) setButton(ControllerButtons.BUTTON_Y, false);
+        else if (id == R.id.buttonLB) setButton(ControllerButtons.BUTTON_LB, false);
+        else if (id == R.id.buttonRB) setButton(ControllerButtons.BUTTON_RB, false);
+        else if (id == R.id.buttonZ) setButton(ControllerButtons.AXIS_RT, false);
+        else if (id == R.id.buttonStart) setButton(ControllerButtons.BUTTON_START, false);
+        else if (id == R.id.buttonDpadUp || id == R.id.buttonDpadDown || id == R.id.buttonDpadLeft || id == R.id.buttonDpadRight) {
+            int b = id == R.id.buttonDpadUp ? ControllerButtons.BUTTON_DPAD_UP : id == R.id.buttonDpadDown ? ControllerButtons.BUTTON_DPAD_DOWN : id == R.id.buttonDpadLeft ? ControllerButtons.BUTTON_DPAD_LEFT : ControllerButtons.BUTTON_DPAD_RIGHT;
+            setButton(b, false); nativeMenuNavKey(b - ControllerButtons.BUTTON_DPAD_UP, false);
+        } else if (id == R.id.buttonCRightUp || id == R.id.buttonCRightDown) setAxis(ControllerButtons.AXIS_RY, (short)0);
+        else if (id == R.id.buttonCRightLeft || id == R.id.buttonCRightRight) setAxis(ControllerButtons.AXIS_RX, (short)0);
+    }
+
+    private void addTouchListener(Button button, int buttonNum) {
+        if (button != null) button.setOnTouchListener((v, event) -> handleSlidingButtonTouch(v, event));
     }
 
     private void setupCButtons(Button button, int dpadButton) {
-        button.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                forwardTouchToSDL(event);
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        setButton(dpadButton, true);
-                        nativeMenuNavKey(dpadButton - ControllerButtons.BUTTON_DPAD_UP, true);
-                        button.setPressed(true);
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                        setButton(dpadButton, false);
-                        nativeMenuNavKey(dpadButton - ControllerButtons.BUTTON_DPAD_UP, false);
-                        button.setPressed(false);
-                        return true;
-                    case MotionEvent.ACTION_CANCEL:
-                        setButton(dpadButton, false);
-                        nativeMenuNavKey(dpadButton - ControllerButtons.BUTTON_DPAD_UP, false);
-                        return true;
-                }
-                return false;
-            }
-        });
+        if (button != null) button.setOnTouchListener((v, event) -> handleSlidingButtonTouch(v, event));
     }
 
     boolean TouchAreaEnabled = true;
@@ -925,51 +954,9 @@ public class MainActivity extends SDLActivity{
 
 
 
-    // Right C-stick: injects the right analog axes. Ship of Harkinian maps
-    // the N64 C directions from the controller's right stick (RX/RY), not D-pad keys.
-    private void setupCJoystick(FrameLayout layout, ImageView knob) {
-        layout.post(() -> {
-            final float centerX = layout.getWidth() / 2f;
-            final float centerY = layout.getHeight() / 2f;
-            final float maxRadius = Math.max(1f, layout.getWidth() / 2f - knob.getWidth() / 2f);
-            // Start with the knob centered even if this listener is restored after editing.
-            knob.setX(centerX - knob.getWidth() / 2f);
-            knob.setY(centerY - knob.getHeight() / 2f);
-            layout.setOnTouchListener((v, event) -> {
-                forwardTouchToSDL(event);
-                switch (event.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                    case MotionEvent.ACTION_MOVE: {
-                        float dx = event.getX() - centerX;
-                        float dy = event.getY() - centerY;
-                        float distance = (float) Math.sqrt(dx * dx + dy * dy);
-                        if (distance > maxRadius) {
-                            float factor = maxRadius / distance;
-                            dx *= factor;
-                            dy *= factor;
-                        }
-                        knob.setX(centerX + dx - knob.getWidth() / 2f);
-                        knob.setY(centerY + dy - knob.getHeight() / 2f);
-                        short x = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE,
-                                (dx / maxRadius) * Short.MAX_VALUE));
-                        short y = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE,
-                                (dy / maxRadius) * Short.MAX_VALUE));
-                        setAxis(ControllerButtons.AXIS_RX, x);
-                        setAxis(ControllerButtons.AXIS_RY, y);
-                        return true;
-                    }
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        knob.setX(centerX - knob.getWidth() / 2f);
-                        knob.setY(centerY - knob.getHeight() / 2f);
-                        setAxis(ControllerButtons.AXIS_RX, (short) 0);
-                        setAxis(ControllerButtons.AXIS_RY, (short) 0);
-                        return true;
-                    default:
-                        return true;
-                }
-            });
-        });
+    // C-right arrows participate in the same slide-between-buttons gesture router.
+    private void setupCArrowButton(View button, final int directionX, final int directionY) {
+        if (button != null) button.setOnTouchListener((v, event) -> handleSlidingButtonTouch(v, event));
     }
 
     // Function to set joystick movement with reset to center when not touched
