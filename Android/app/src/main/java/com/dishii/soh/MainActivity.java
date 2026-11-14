@@ -811,6 +811,7 @@ public class MainActivity extends SDLActivity{
     // Multi-touch routing: each finger owns an independent active control.
     // A finger may slide between controls while other fingers keep their buttons held.
     private final Map<Integer, View> slidingActiveButtons = new HashMap<>();
+    private final Map<View, Integer> slidingButtonPressCounts = new HashMap<>();
 
     private boolean handleSlidingButtonTouch(View source, MotionEvent event) {
         forwardTouchToSDL(event);
@@ -819,15 +820,20 @@ public class MainActivity extends SDLActivity{
 
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
             int pointerId = event.getPointerId(actionIndex);
-            updateSlidingPointer(pointerId, event.getRawX(), event.getRawY());
+            float rawX = event.getRawX() + (event.getX(actionIndex) - event.getX(0));
+            float rawY = event.getRawY() + (event.getY(actionIndex) - event.getY(0));
+            updateSlidingPointer(pointerId, rawX, rawY);
             return true;
         }
         if (action == MotionEvent.ACTION_MOVE) {
+            // A split touch stream can contain pointers owned by other controls.
+            // Only move fingers that this button router originally claimed.
             for (int i = 0; i < event.getPointerCount(); i++) {
                 int pointerId = event.getPointerId(i);
+                if (!slidingActiveButtons.containsKey(pointerId)) continue;
                 updateSlidingPointer(pointerId,
-                        event.getRawX() + (event.getX(i) - event.getX()),
-                        event.getRawY() + (event.getY(i) - event.getY()));
+                        event.getRawX() + (event.getX(i) - event.getX(0)),
+                        event.getRawY() + (event.getY(i) - event.getY(0)));
             }
             return true;
         }
@@ -847,17 +853,34 @@ public class MainActivity extends SDLActivity{
         View target = findSlidingButtonAt(rawX, rawY);
         View previous = slidingActiveButtons.get(pointerId);
         if (target == previous) return;
-        if (previous != null) releaseSlidingButton(previous);
+        if (previous != null) releaseSlidingButtonForPointer(previous);
         if (target == null) slidingActiveButtons.remove(pointerId);
         else {
             slidingActiveButtons.put(pointerId, target);
-            pressSlidingButton(target);
+            pressSlidingButtonForPointer(target);
         }
     }
 
     private void releaseSlidingPointer(int pointerId) {
         View previous = slidingActiveButtons.remove(pointerId);
-        if (previous != null) releaseSlidingButton(previous);
+        if (previous != null) releaseSlidingButtonForPointer(previous);
+    }
+
+    private void pressSlidingButtonForPointer(View button) {
+        int count = slidingButtonPressCounts.containsKey(button) ? slidingButtonPressCounts.get(button) : 0;
+        slidingButtonPressCounts.put(button, count + 1);
+        if (count == 0) pressSlidingButton(button);
+    }
+
+    private void releaseSlidingButtonForPointer(View button) {
+        Integer count = slidingButtonPressCounts.get(button);
+        if (count == null) return;
+        if (count <= 1) {
+            slidingButtonPressCounts.remove(button);
+            releaseSlidingButton(button);
+        } else {
+            slidingButtonPressCounts.put(button, count - 1);
+        }
     }
 
     private View findSlidingButtonAt(float rawX, float rawY) {
@@ -1013,59 +1036,62 @@ public class MainActivity extends SDLActivity{
     // Function to set joystick movement with reset to center when not touched
     private void setupJoystick(FrameLayout joystickLayout, ImageView joystickKnob, boolean isLeft) {
         joystickLayout.post(() -> {
-            // Calculate the joystick center once, before any events
             final float joystickCenterX = joystickLayout.getWidth() / 2f;
             final float joystickCenterY = joystickLayout.getHeight() / 2f;
 
             joystickLayout.setOnTouchListener(new View.OnTouchListener() {
+                private int activePointerId = MotionEvent.INVALID_POINTER_ID;
+
+                private void resetJoystick() {
+                    joystickKnob.setX(joystickCenterX - joystickKnob.getWidth() / 2f);
+                    joystickKnob.setY(joystickCenterY - joystickKnob.getHeight() / 2f);
+                    setAxis(isLeft ? ControllerButtons.AXIS_LX : ControllerButtons.AXIS_RX, (short) 0);
+                    setAxis(isLeft ? ControllerButtons.AXIS_LY : ControllerButtons.AXIS_RY, (short) 0);
+                    activePointerId = MotionEvent.INVALID_POINTER_ID;
+                }
+
+                private void updateJoystick(MotionEvent event, int pointerIndex) {
+                    float deltaX = event.getX(pointerIndex) - joystickCenterX;
+                    float deltaY = event.getY(pointerIndex) - joystickCenterY;
+                    float maxRadius = Math.max(1f, joystickLayout.getWidth() / 2f - joystickKnob.getWidth() / 2f);
+                    float distance = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                    if (distance > maxRadius) {
+                        float scale = maxRadius / distance;
+                        deltaX *= scale;
+                        deltaY *= scale;
+                    }
+                    joystickKnob.setX(joystickCenterX + deltaX - joystickKnob.getWidth() / 2f);
+                    joystickKnob.setY(joystickCenterY + deltaY - joystickKnob.getHeight() / 2f);
+                    setAxis(isLeft ? ControllerButtons.AXIS_LX : ControllerButtons.AXIS_RX,
+                            (short) (deltaX / maxRadius * Short.MAX_VALUE));
+                    setAxis(isLeft ? ControllerButtons.AXIS_LY : ControllerButtons.AXIS_RY,
+                            (short) (deltaY / maxRadius * Short.MAX_VALUE));
+                }
+
                 @Override
                 public boolean onTouch(View v, MotionEvent event) {
                     forwardTouchToSDL(event);
-                    switch (event.getAction()) {
-                        case MotionEvent.ACTION_DOWN:
-                        case MotionEvent.ACTION_MOVE:
-                            // Calculate the joystick movement and move the knob
-                            float deltaX = event.getX() - joystickCenterX;
-                            float deltaY = event.getY() - joystickCenterY;
-
-                            // Clamp the joystick movement to prevent it from going outside the area
-                            float maxRadius = joystickLayout.getWidth() / 2f - joystickKnob.getWidth() / 2f;
-                            float distance = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-                            if (distance > maxRadius) {
-                                float scale = maxRadius / distance;
-                                deltaX *= scale;
-                                deltaY *= scale;
-                            }
-
-                            joystickKnob.setX(joystickCenterX + deltaX - joystickKnob.getWidth() / 2f);
-                            joystickKnob.setY(joystickCenterY + deltaY - joystickKnob.getHeight() / 2f);
-
-                            // Send joystick values to native C code
-                            short x = (short) (deltaX / maxRadius * Short.MAX_VALUE);
-                            short y = (short) (deltaY / maxRadius * Short.MAX_VALUE);
-
-                            // Send X-axis and Y-axis values
-                            setAxis(isLeft ? ControllerButtons.AXIS_LX : ControllerButtons.AXIS_RX, x); // X-axis
-                            setAxis(isLeft ? ControllerButtons.AXIS_LY : ControllerButtons.AXIS_RY, y); // Y-axis
-                            break;
-
-                        case MotionEvent.ACTION_UP:
-                        case MotionEvent.ACTION_CANCEL:
-                            // Reset joystick knob to the center position (ensure it's placed correctly)
-                            joystickKnob.setX(joystickCenterX - joystickKnob.getWidth() / 2f);
-                            joystickKnob.setY(joystickCenterY - joystickKnob.getHeight() / 2f);
-
-                            // Reset joystick values to 0 when released or canceled
-                            setAxis(isLeft ? ControllerButtons.AXIS_LX : ControllerButtons.AXIS_RX, (short) 0); // X-axis
-                            setAxis(isLeft ? ControllerButtons.AXIS_LY : ControllerButtons.AXIS_RY, (short) 0); // Y-axis
-                            break;
+                    int action = event.getActionMasked();
+                    int index = event.getActionIndex();
+                    if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+                        if (activePointerId == MotionEvent.INVALID_POINTER_ID) {
+                            activePointerId = event.getPointerId(index);
+                            updateJoystick(event, index);
+                        }
+                    } else if (action == MotionEvent.ACTION_MOVE) {
+                        if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
+                            int pointerIndex = event.findPointerIndex(activePointerId);
+                            if (pointerIndex >= 0) updateJoystick(event, pointerIndex);
+                        }
+                    } else if (action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_UP) {
+                        if (event.getPointerId(index) == activePointerId) resetJoystick();
+                    } else if (action == MotionEvent.ACTION_CANCEL) {
+                        resetJoystick();
                     }
                     return true;
                 }
             });
         });
-
-
     }
 
     public void startRumble(int lowIntensity, int highIntensity) {
