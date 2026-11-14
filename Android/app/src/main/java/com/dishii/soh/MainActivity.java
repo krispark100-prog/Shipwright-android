@@ -1,4 +1,3 @@
-
 package com.dishii.soh;
 import org.libsdl.app.SDLActivity;
 
@@ -525,6 +524,13 @@ public class MainActivity extends SDLActivity{
         // after the joystick was translated into the right-side area.
         buttonGroup.removeView(rightScreenArea);
         buttonGroup.addView(rightScreenArea, 0);
+
+        // Mantener el grupo de botones C por encima de la cámara,
+        // pero debajo del joystick para permitir el uso simultáneo.
+        if (cButtonsGroup != null) {
+            buttonGroup.removeView(cButtonsGroup);
+            buttonGroup.addView(cButtonsGroup, 1);
+        }
 
         addTouchListener(buttonA, ControllerButtons.BUTTON_A);
         addTouchListener(buttonB, ControllerButtons.BUTTON_B);
