@@ -489,6 +489,12 @@ public class MainActivity extends SDLActivity{
         view.setKeepScreenOn(true);
 
         final ViewGroup buttonGroup = overlayView.findViewById(R.id.button_group);
+        // Keep independent pointer streams for controls touched simultaneously.
+        buttonGroup.setMotionEventSplittingEnabled(true);
+        FrameLayout cButtonsGroup = overlayView.findViewById(R.id.right_c_buttons_group);
+        if (cButtonsGroup != null) {
+            cButtonsGroup.setMotionEventSplittingEnabled(true);
+        }
 
         buttonA = overlayView.findViewById(R.id.buttonA);
         buttonB = overlayView.findViewById(R.id.buttonB);
@@ -814,6 +820,10 @@ public class MainActivity extends SDLActivity{
     private final Map<View, Integer> slidingButtonPressCounts = new HashMap<>();
 
     private boolean handleSlidingButtonTouch(View source, MotionEvent event) {
+        // Prevent an ancestor from intercepting this control's active pointer stream.
+        if (source.getParent() instanceof ViewGroup) {
+            ((ViewGroup) source.getParent()).requestDisallowInterceptTouchEvent(true);
+        }
         forwardTouchToSDL(event);
         int action = event.getActionMasked();
         int actionIndex = event.getActionIndex();
@@ -1070,6 +1080,10 @@ public class MainActivity extends SDLActivity{
 
                 @Override
                 public boolean onTouch(View v, MotionEvent event) {
+                    // Keep the joystick pointer stream independent from buttons held elsewhere.
+                    if (v.getParent() instanceof ViewGroup) {
+                        ((ViewGroup) v.getParent()).requestDisallowInterceptTouchEvent(true);
+                    }
                     forwardTouchToSDL(event);
                     int action = event.getActionMasked();
                     int index = event.getActionIndex();
